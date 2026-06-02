@@ -1,6 +1,7 @@
 import { Exa } from 'exa-js'
 import type { SearchResult } from '../../shared/types.js'
 import type { SearchSpec } from './queries.js'
+import { task } from '@renderinc/sdk/workflows'
 
 function getExa(): Exa {
   const key = process.env.EXA_API_KEY
@@ -18,30 +19,39 @@ function maybeFail(query: string) {
   }
 }
 
-export async function searchOne(
-  _topic: string,
-  spec: SearchSpec,
-  index: number
-): Promise<SearchResult> {
-  maybeFail(spec.query)
 
-  const response = await getExa().searchAndContents(spec.query, {
-    text: { maxCharacters: 2000 },
-    numResults: 5,
-    type: 'auto',
-    ...(spec.startPublishedDate
-      ? { startPublishedDate: spec.startPublishedDate }
-      : {}),
+
+export const searchOne = task(
+  {
+    name: 'searchOne',
+    plan: 'starter',
+    timeoutSeconds: 120,
+    retry: { maxRetries: 3, waitDurationMs: 1000, backoffScaling: 1.5 },
+  },
+  async function searchOne(
+    _topic: string,
+    spec: SearchSpec,
+    index: number
+  ): Promise<SearchResult> {
+    maybeFail(spec.query)
+
+    const response = await getExa().searchAndContents(spec.query, {
+      text: { maxCharacters: 2000 },
+      numResults: 5,
+      type: 'auto',
+      ...(spec.startPublishedDate
+        ? { startPublishedDate: spec.startPublishedDate }
+        : {}),
+    })
+
+    return {
+      index,
+      query: spec.query,
+      articles: response.results.map((r: (typeof response.results)[number]) => ({
+        title: r.title ?? r.url,
+        url: r.url,
+        text: r.text ?? '',
+        publishedDate: r.publishedDate,
+      })),
+    }
   })
-
-  return {
-    index,
-    query: spec.query,
-    articles: response.results.map((r: (typeof response.results)[number]) => ({
-      title: r.title ?? r.url,
-      url: r.url,
-      text: r.text ?? '',
-      publishedDate: r.publishedDate,
-    })),
-  }
-}
